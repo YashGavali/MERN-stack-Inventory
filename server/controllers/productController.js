@@ -72,7 +72,7 @@ const updateProduct = catchAsyncErrors(async (req, res, next) => {
 
 //Delete product
 
-const deleteProduct = catchAsyncErrors(async (req, res) => {
+const deleteProduct = catchAsyncErrors(async (req, res, next) => {
   const product = await Product.findById(req.params.id);
 
   if (!product) {

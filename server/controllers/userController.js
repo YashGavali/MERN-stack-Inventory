@@ -3,6 +3,8 @@ const catchAsyncErrors = require('../middlewares/catchAsyncError');
 const User = require('../models/UserModel');
 const sendToken = require('../utils/jwtToken');
 const sendEmail = require('../utils/sendEmail');
+const crypto = require('crypto');
+
 //Register User
 
 const registerUser = catchAsyncErrors(async (req, res, next) => {
@@ -93,11 +95,153 @@ const forgotPassword = catchAsyncErrors(async (req, res, next) => {
     });
   } catch (error) {
     user.resetPasswordToken = undefined;
-    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
     await user.save({ validateBeforeSave: false });
 
     return next(new ErrorHandler(error.message, 500));
   }
+});
+
+//Reset Password
+
+const resetPassword = catchAsyncErrors(async (req, res, next) => {
+  //create token hash
+
+  const resetPasswordToken = crypto
+    .createHash('sha256')
+    .update(req.params.token)
+    .digest('hex');
+
+  const user = await User.findOne({
+    resetPasswordToken,
+    resetPasswordExpire: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    return next(new ErrorHandler('Password token is invalid or expired', 404));
+  }
+
+  if (req.body.password !== req.body.confirmPassword) {
+    return next(new ErrorHandler('Password does not match', 400));
+  }
+
+  user.password = req.body.password;
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpire = undefined;
+
+  await user.save();
+
+  sendToken(user, 200, res);
+});
+
+//get user details (single)
+
+const getUserDetails = catchAsyncErrors(async (req, res, next) => {
+  const user = await User.findById(req.user.id);
+
+  res.status(200).json({
+    success: true,
+    user,
+  });
+});
+
+// update user password
+
+const updatePassword = catchAsyncErrors(async (req, res, next) => {
+  const user = await User.findById(req.user.id).select('+password');
+
+  const isPasswordMatched = await user.comparePassword(req.body.oldPassword);
+  if (!isPasswordMatched) {
+    return next(new ErrorHandler('Invalid Old password', 401));
+  }
+
+  if (req.body.newPassword !== req.body.confirmPassword) {
+    return next(new ErrorHandler('Password do not match', 401));
+  }
+
+  user.password = req.body.newPassword;
+
+  await user.save();
+
+  sendToken(user, 200, res);
+});
+
+// update user profile
+
+const updateProfile = catchAsyncErrors(async (req, res, next) => {
+  const newUserData = {
+    name: req.body.name,
+    email: req.body.email,
+  };
+
+  const user = await User.findByIdAndUpdate(req.user.id, newUserData, {
+    new: true,
+    runValidators: true,
+    useFindAndModify: false,
+  });
+  res.status(200).json({
+    succes: true,
+  });
+});
+
+// get all users --Admin
+
+const getAllUsers = catchAsyncErrors(async (req, res, next) => {
+  const users = await User.find();
+
+  res.status(200).json({
+    success: true,
+    users,
+  });
+});
+
+// get single users -- Admin
+
+const getSingleUser = catchAsyncErrors(async (req, res, next) => {
+  const user = await User.findById(req.params.id);
+
+  if (!user) {
+    return next(new ErrorHandler('User does not exist', 404));
+  }
+  res.status(200).json({
+    success: true,
+    user,
+  });
+});
+
+//Update user Role --Admin
+
+const updateUserRole = catchAsyncErrors(async (req, res, next) => {
+  const newUserData = {
+    name: req.body.name,
+    email: req.body.email,
+    role: req.body.role,
+  };
+
+  const user = await User.findByIdAndUpdate(req.params.id, newUserData, {
+    new: true,
+    runValidators: true,
+    useFindAndModify: false,
+  });
+  res.status(200).json({
+    succes: true,
+  });
+});
+
+//Delete User -- Admin
+
+const deleteUser = catchAsyncErrors(async (req, res, next) => {
+  const user = await User.findById(req.params.id);
+
+  if (!user) {
+    return next(new ErrorHandler('User does not exist', 404));
+  }
+  await user.remove();
+
+  res.status(200).json({
+    succes: true,
+    message: 'User deleted succesfuly',
+  });
 });
 
 module.exports = {
@@ -105,4 +249,12 @@ module.exports = {
   loginUser,
   logoutUser,
   forgotPassword,
+  resetPassword,
+  getUserDetails,
+  updatePassword,
+  updateProfile,
+  getAllUsers,
+  getSingleUser,
+  updateUserRole,
+  deleteUser,
 };
